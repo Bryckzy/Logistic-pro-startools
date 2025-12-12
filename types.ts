@@ -25,10 +25,11 @@ export interface WeightLevel {
   net: number; // stored in grams
   gross: number; // stored in grams
   pcs: number;
+  cbm?: number; // stored in cubic meters
 }
 
 export interface HierarchyResults {
   unit: WeightLevel;
   inner?: WeightLevel;
-  master: WeightLevel & { cbm?: number };
+  master: WeightLevel;
 }

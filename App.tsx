@@ -39,8 +39,8 @@ const App: React.FC = () => {
 
   // Results State
   const [results, setResults] = useState<HierarchyResults>({
-    unit: { net: 0, gross: 0, pcs: 1 },
-    master: { net: 0, gross: 0, pcs: 0 }
+    unit: { net: 0, gross: 0, pcs: 1, cbm: 0 },
+    master: { net: 0, gross: 0, pcs: 0, cbm: 0 }
   });
 
   // Calculation Logic
@@ -72,29 +72,38 @@ const App: React.FC = () => {
       unitNet = masterNet / pcsMaster;
     }
 
-    let innerResult: { net: number; gross: number; pcs: number } | undefined = undefined;
-    if (data.hasInnerCarton && typeof data.innerCartonsPerMaster === 'number' && data.innerCartonsPerMaster > 0) {
-      const pcsInner = pcsMaster / data.innerCartonsPerMaster;
-      const innerNet = unitNet * pcsInner;
-      const innerGross = unitGross * pcsInner; 
-
-      innerResult = {
-        net: innerNet,
-        gross: innerGross,
-        pcs: pcsInner
-      };
-    }
-
+    // Volume Calculation
     let masterCbm = 0;
+    let unitCbm = 0;
+    
     if (data.calculateVolume) {
       const l = typeof data.length === 'number' ? data.length : 0;
       const w = typeof data.width === 'number' ? data.width : 0;
       const h = typeof data.height === 'number' ? data.height : 0;
       masterCbm = (l * w * h) / 1000000;
+      if (pcsMaster > 0) {
+        unitCbm = masterCbm / pcsMaster;
+      }
+    }
+
+    // Inner Logic
+    let innerResult: { net: number; gross: number; pcs: number; cbm: number } | undefined = undefined;
+    if (data.hasInnerCarton && typeof data.innerCartonsPerMaster === 'number' && data.innerCartonsPerMaster > 0) {
+      const pcsInner = pcsMaster / data.innerCartonsPerMaster;
+      const innerNet = unitNet * pcsInner;
+      const innerGross = unitGross * pcsInner; 
+      const innerCbm = masterCbm > 0 ? masterCbm / data.innerCartonsPerMaster : 0;
+
+      innerResult = {
+        net: innerNet,
+        gross: innerGross,
+        pcs: pcsInner,
+        cbm: innerCbm
+      };
     }
 
     setResults({
-      unit: { net: unitNet, gross: unitGross, pcs: 1 },
+      unit: { net: unitNet, gross: unitGross, pcs: 1, cbm: unitCbm },
       inner: innerResult,
       master: { net: masterNet, gross: masterGross, pcs: pcsMaster, cbm: masterCbm }
     });
@@ -129,10 +138,11 @@ const App: React.FC = () => {
     };
   };
 
-  const formatCbm = (val: number) => {
+  const formatCbm = (val: number, decimals: number = 3) => {
+    if (!val) return "0,000";
     return new Intl.NumberFormat('pt-BR', {
-      minimumFractionDigits: 3,
-      maximumFractionDigits: 3,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
     }).format(val);
   };
 
@@ -342,36 +352,8 @@ const App: React.FC = () => {
         {/* === RIGHT COLUMN: RESULTS & PREVIEW === */}
         <div className="lg:col-span-7 flex flex-col h-full relative">
           
-          {/* Header & Unit Toggle */}
-          <div className="flex items-center justify-between mb-8 pl-4 pr-1">
-            <div className="flex items-center gap-2 opacity-60">
-               <Trophy size={16} className="text-[#FFC72C]" />
-               <span className="text-xs font-bold uppercase tracking-[0.15em] text-[#FFC72C]">Logistics Report</span>
-            </div>
-            
-            {/* Toggle Container - Neon Border */}
-            <div className="bg-[#1F1F1F] rounded-xl p-1 shadow-sm border border-[#FFC72C]/20 flex">
-              {['g', 'kg'].map((unit) => (
-                <button
-                  key={unit}
-                  onClick={() => setOutputUnit(unit as MassUnit)}
-                  className={`relative px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 overflow-hidden ${
-                    outputUnit === unit 
-                    ? 'text-black shadow-md' 
-                    : 'text-neutral-500 hover:text-neutral-300 hover:bg-[#262626]'
-                  }`}
-                >
-                  {outputUnit === unit && (
-                    <div className="absolute inset-0 bg-[#FFC72C] z-0"></div>
-                  )}
-                  <span className="relative z-10">{unit}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          {/* HERO PREVIEW SECTION (MOVED HERE) */}
-          <div className="relative w-full h-[500px] bg-[#0A0A0A] rounded-[2.5rem] mb-10 overflow-hidden border border-[#FFC72C]/30 shadow-[0_0_40px_-5px_rgba(255,199,44,0.15)] group/hero">
+          {/* 1. HERO PREVIEW SECTION (MOVED TO TOP) */}
+          <div className="relative w-full h-[500px] bg-[#0A0A0A] rounded-[2.5rem] mb-6 overflow-hidden border border-[#FFC72C]/30 shadow-[0_0_40px_-5px_rgba(255,199,44,0.15)] group/hero">
              
              {/* Stage Effects */}
              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,199,44,0.08)_0%,transparent_70%)]"></div>
@@ -400,57 +382,95 @@ const App: React.FC = () => {
              </div>
           </div>
 
+          {/* 2. HEADER & UNIT TOGGLE (MOVED BELOW PREVIEW) */}
+          <div className="flex items-center justify-between mb-8 pl-4 pr-1 mt-2">
+            <div className="flex items-center gap-2 opacity-60">
+               <Trophy size={16} className="text-[#FFC72C]" />
+               <span className="text-xs font-bold uppercase tracking-[0.15em] text-[#FFC72C]">Logistics Report</span>
+            </div>
+            
+            {/* Toggle Container - Neon Border */}
+            <div className="bg-[#1F1F1F] rounded-xl p-1 shadow-sm border border-[#FFC72C]/20 flex">
+              {['g', 'kg'].map((unit) => (
+                <button
+                  key={unit}
+                  onClick={() => setOutputUnit(unit as MassUnit)}
+                  className={`relative px-6 py-2 text-xs font-black uppercase tracking-widest rounded-lg transition-all duration-300 overflow-hidden ${
+                    outputUnit === unit 
+                    ? 'text-black shadow-md' 
+                    : 'text-neutral-500 hover:text-neutral-300 hover:bg-[#262626]'
+                  }`}
+                >
+                  {outputUnit === unit && (
+                    <div className="absolute inset-0 bg-[#FFC72C] z-0"></div>
+                  )}
+                  <span className="relative z-10">{unit}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="relative flex flex-col gap-6 flex-1">
             
             {/* The Timeline Connector (Dark Mode) */}
             <div className="absolute left-[35px] top-0 bottom-20 w-[2px] bg-gradient-to-b from-neutral-800 via-neutral-800 to-transparent z-0 opacity-50"></div>
 
-            {/* 1. UNIT CARD - NEON UPDATE */}
+            {/* 3. UNIT CARD - CYAN UPDATE */}
             <div className="relative z-10 flex gap-8 items-stretch group">
                {/* Timeline Node */}
                <div className="w-[70px] flex-shrink-0 flex justify-center pt-8">
-                  <div className="w-4 h-4 bg-[#1F1F1F] rounded-full border-[3px] border-[#FFC72C] shadow-[0_0_15px_rgba(255,199,44,0.4)] z-10 group-hover:scale-125 transition-transform duration-300"></div>
+                  <div className="w-4 h-4 bg-[#1F1F1F] rounded-full border-[3px] border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)] z-10 group-hover:scale-125 transition-transform duration-300"></div>
                </div>
                
-               {/* Card Content */}
-               <div className="flex-1 bg-[#1F1F1F] rounded-2xl p-6 shadow-[0_0_20px_rgba(255,199,44,0.05)] border border-[#FFC72C]/30 transition-all duration-300 hover:shadow-[0_0_25px_rgba(255,199,44,0.1)] hover:-translate-y-1 relative group-hover:border-[#FFC72C]/60">
+               {/* Card Content - Cyan Theme */}
+               <div className="flex-1 bg-gradient-to-br from-[#1F1F1F] to-cyan-950/10 rounded-2xl p-6 shadow-[0_0_20px_rgba(6,182,212,0.05)] border border-cyan-500/30 transition-all duration-300 hover:shadow-[0_0_25px_rgba(6,182,212,0.1)] hover:-translate-y-1 relative group-hover:border-cyan-500/60">
                   <div className="flex justify-between items-start mb-6">
                     <div>
                       <h4 className="font-bold text-white text-lg tracking-tight">Unitário</h4>
                       <p className="text-[10px] font-bold text-neutral-500 mt-1 uppercase tracking-widest">Produto Individual</p>
                     </div>
-                    <div className="w-10 h-10 bg-[#121212] border border-neutral-800 rounded-xl flex items-center justify-center text-neutral-500 group-hover:text-[#FFC72C] group-hover:border-[#FFC72C]/40 transition-all duration-300">
+                    <div className="w-10 h-10 bg-[#121212] border border-neutral-800 rounded-xl flex items-center justify-center text-neutral-500 group-hover:text-cyan-400 group-hover:border-cyan-500/40 transition-all duration-300">
                        <span className="font-black text-xs">1</span>
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-8">
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-8">
                     <div>
                        <span className="block text-[9px] uppercase font-black text-neutral-500 tracking-[0.2em] mb-2">Net Weight</span>
                        <div className="flex items-baseline gap-1.5">
                           <span className="text-3xl font-black text-white tracking-tighter">{displayValue(results.unit.net).value}</span>
-                          <span className="text-xs font-bold text-neutral-400 bg-neutral-800 px-1.5 rounded">{displayValue(results.unit.net).unit}</span>
+                          <span className="text-xs font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-900/50 px-1.5 rounded">{displayValue(results.unit.net).unit}</span>
                        </div>
                     </div>
                     <div>
                        <span className="block text-[9px] uppercase font-black text-neutral-500 tracking-[0.2em] mb-2">Gross Weight</span>
                        <div className="flex items-baseline gap-1.5">
                           <span className="text-3xl font-black text-white tracking-tighter">{displayValue(results.unit.gross).value}</span>
-                          <span className="text-xs font-bold text-neutral-400 bg-neutral-800 px-1.5 rounded">{displayValue(results.unit.gross).unit}</span>
+                          <span className="text-xs font-bold text-cyan-400 bg-cyan-950/30 border border-cyan-900/50 px-1.5 rounded">{displayValue(results.unit.gross).unit}</span>
                        </div>
                     </div>
+                    {/* Unit CBM */}
+                    {data.calculateVolume && (
+                      <div className="animate-in fade-in zoom-in duration-500 delay-100">
+                         <span className="block text-[9px] uppercase font-black text-neutral-500 tracking-[0.2em] mb-2">Cubagem</span>
+                         <div className="flex items-baseline gap-1.5">
+                            <span className="text-3xl font-black text-neutral-300 tracking-tighter">{formatCbm(results.unit.cbm || 0, 4)}</span>
+                            <span className="text-xs font-bold text-cyan-400">m³</span>
+                         </div>
+                      </div>
+                    )}
                   </div>
                </div>
             </div>
 
-            {/* 2. INNER CARD (Conditional) - NEON UPDATE */}
+            {/* 4. INNER CARD (Conditional) - VIOLET UPDATE */}
             {data.hasInnerCarton && results.inner && (
               <div className="relative z-10 flex gap-8 items-stretch group animate-in slide-in-from-left-4 fade-in duration-500">
                  <div className="w-[70px] flex-shrink-0 flex justify-center pt-8">
-                    <div className="w-3 h-3 bg-neutral-700 rounded-full ring-4 ring-[#1F1F1F] z-10"></div>
+                    <div className="w-3 h-3 bg-[#1F1F1F] rounded-full ring-2 ring-violet-500 z-10 shadow-[0_0_15px_rgba(139,92,246,0.4)]"></div>
                  </div>
                  
-                 <div className="flex-1 bg-[#262626]/80 backdrop-blur rounded-2xl p-6 border border-[#FFC72C]/20 hover:border-[#FFC72C]/40 hover:bg-[#262626] hover:shadow-[0_0_20px_rgba(255,199,44,0.05)] transition-all duration-300">
+                 <div className="flex-1 bg-gradient-to-br from-[#1F1F1F] to-violet-950/10 backdrop-blur rounded-2xl p-6 border border-violet-500/30 hover:border-violet-500/60 hover:shadow-[0_0_20px_rgba(139,92,246,0.1)] transition-all duration-300">
                     <div className="flex justify-between items-start mb-6">
                       <div>
                         <h4 className="font-bold text-neutral-200 text-lg">Inner Box</h4>
@@ -458,31 +478,41 @@ const App: React.FC = () => {
                       </div>
                       <div className="text-right">
                          <span className="text-xl font-black text-neutral-200 leading-none block">{Math.round(results.inner.pcs)}</span>
-                         <span className="text-[9px] text-neutral-500 font-bold uppercase tracking-widest">Pcs</span>
+                         <span className="text-[9px] text-violet-400 font-bold uppercase tracking-widest">Pcs</span>
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-8">
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-8">
                       <div>
                          <span className="block text-[9px] uppercase font-black text-neutral-500 tracking-[0.2em] mb-1">Net Weight</span>
                          <div className="flex items-baseline gap-1">
                             <span className="text-2xl font-black text-neutral-300">{displayValue(results.inner.net).value}</span>
-                            <span className="text-[10px] font-bold text-neutral-500">{displayValue(results.inner.net).unit}</span>
+                            <span className="text-[10px] font-bold text-violet-400">{displayValue(results.inner.net).unit}</span>
                          </div>
                       </div>
                       <div>
                          <span className="block text-[9px] uppercase font-black text-neutral-500 tracking-[0.2em] mb-1">Gross Weight</span>
                          <div className="flex items-baseline gap-1">
                             <span className="text-2xl font-black text-neutral-300">{displayValue(results.inner.gross).value}</span>
-                            <span className="text-[10px] font-bold text-neutral-500">{displayValue(results.inner.gross).unit}</span>
+                            <span className="text-[10px] font-bold text-violet-400">{displayValue(results.inner.gross).unit}</span>
                          </div>
                       </div>
+                      {/* Inner CBM */}
+                      {data.calculateVolume && (
+                        <div className="animate-in fade-in zoom-in duration-500 delay-150">
+                           <span className="block text-[9px] uppercase font-black text-neutral-500 tracking-[0.2em] mb-1">Cubagem</span>
+                           <div className="flex items-baseline gap-1">
+                              <span className="text-2xl font-black text-neutral-300">{formatCbm(results.inner.cbm || 0, 3)}</span>
+                              <span className="text-[10px] font-bold text-violet-400">m³</span>
+                           </div>
+                        </div>
+                      )}
                     </div>
                  </div>
               </div>
             )}
 
-            {/* 3. MASTER HERO CARD - NEON MONOLITH UPDATE */}
+            {/* 5. MASTER HERO CARD - NEON MONOLITH UPDATE */}
             <div className="relative z-10 flex gap-8 items-stretch pt-4 flex-1">
                {/* Timeline End Node */}
                <div className="w-[70px] flex-shrink-0 flex items-start justify-center pt-10">
@@ -528,7 +558,7 @@ const App: React.FC = () => {
                         </div>
                         {data.calculateVolume && (
                            <div className="text-right">
-                              <span className="block text-[10px] uppercase text-neutral-500 font-bold tracking-widest mb-1">Volume</span>
+                              <span className="block text-[10px] uppercase text-neutral-500 font-bold tracking-widest mb-1">Cubagem</span>
                               <div className="flex items-center justify-end gap-1">
                                 <span className="text-2xl font-bold text-white tabular-nums">{formatCbm(results.master.cbm || 0)}</span>
                                 <span className="text-[10px] text-[#FFC72C] font-bold">M³</span>

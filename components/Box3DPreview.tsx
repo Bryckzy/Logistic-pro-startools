@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Move3d, Box as BoxIcon, Scan, Package, Layers } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Move3d, Box as BoxIcon, Scan, Package, Layers, Maximize2, Minimize2 } from 'lucide-react';
 
 interface Box3DPreviewProps {
   length: number | '';
@@ -35,6 +36,7 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
 
   // View Mode: 0 = Master Only, 1 = Hierarchy (Exploded), 2 = Packed (X-Ray)
   const [viewMode, setViewMode] = useState<0 | 1 | 2>(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const [rotation, setRotation] = useState({ x: -20, y: 45 });
   const [zoom, setZoom] = useState(0.9);
@@ -43,13 +45,12 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
   const lastMousePos = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Normalização de escala base (Max 120px)
-  const MAX_SIZE = 120;
+  // Normalização de escala base (Dynamic for fullscreen)
+  const MAX_SIZE = isFullscreen ? 280 : 120;
   const maxDim = Math.max(l, w, h);
   const scale = maxDim > 0 ? MAX_SIZE / maxDim : 1;
 
   // Dimensões Visuais Master (Pixels)
-  // Mapping: User L -> CSS Width (X), User H -> CSS Height (Y), User W -> CSS Depth (Z)
   const masterW = l * scale; 
   const masterH = h * scale; 
   const masterD = w * scale; 
@@ -86,23 +87,20 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
     return bestLayout;
   };
 
-  // 1. Calculate Inner Dimensions (relative to Master)
+  // 1. Calculate Inner Dimensions
   const innerLayout = calculatePackingLayout(masterW, masterH, masterD, totalInners);
   const innerDims = {
     w: masterW / innerLayout.nx,
     h: masterH / innerLayout.ny,
     d: masterD / innerLayout.nz
   };
-  // Calculate Real Inner Dimensions (cm) for display
   const innerRealDims = {
     l: (l / innerLayout.nx).toFixed(1),
     h: (h / innerLayout.ny).toFixed(1),
     w: (w / innerLayout.nz).toFixed(1)
   };
 
-
   // 2. Calculate Product Dimensions
-  // If hasInner, parent is Inner. Else, parent is Master.
   let productParentW = hasInnerCarton ? innerDims.w : masterW;
   let productParentH = hasInnerCarton ? innerDims.h : masterH;
   let productParentD = hasInnerCarton ? innerDims.d : masterD;
@@ -114,7 +112,6 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
     h: productParentH / productLayout.ny,
     d: productParentD / productLayout.nz
   };
-  // Calculate Real Product Dimensions (cm) for display
   const productRealDims = {
     l: (Number(hasInnerCarton ? innerRealDims.l : l) / productLayout.nx).toFixed(1),
     h: (Number(hasInnerCarton ? innerRealDims.h : h) / productLayout.ny).toFixed(1),
@@ -122,25 +119,17 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
   };
 
   // --- POSITIONING LOGIC FOR EXPLODED VIEW ---
-  // Calculates shifts to center the rotation on Inner Box if present
   let pivotShiftX = 0;
-  
-  // Default positions (relative to Master center at 0)
   const posInnerDefault = masterW/2 + innerDims.w/2 + 30;
   const posUnitDefault = hasInnerCarton && totalInners > 0
       ? (masterW/2 + innerDims.w + 60 + productDims.w/2) 
       : (masterW/2 + productDims.w/2 + 30);
 
   if (viewMode === 1 && hasInnerCarton && totalInners > 0) {
-    // If exploded mode with inner box, we shift everything left by the Inner's position
-    // This puts the Inner box at x=0 (Center of Rotation)
     pivotShiftX = -posInnerDefault;
   } else if (viewMode === 1) {
-    // If no inner box, maybe center between Master and Unit? 
-    // Currently keeping Master at center if no inner, or shift slightly
     pivotShiftX = -posUnitDefault / 2; 
   }
-
 
   // --- HANDLERS ---
   const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
@@ -189,29 +178,23 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
     const el = containerRef.current;
     if (el) el.addEventListener('wheel', handleWheel, { passive: false });
     return () => { if (el) el.removeEventListener('wheel', handleWheel); };
-  }, []);
+  }, [isFullscreen]); // Re-attach listener if portal status changes
 
   // --- RENDER HELPERS ---
-  
   const RenderDimensions = ({ w, h, d, realL, realH, realW }: { w: number, h: number, d: number, realL: string|number, realH: string|number, realW: string|number }) => (
     <>
-      {/* Cota L */}
       <div className="absolute pointer-events-none" style={{ transform: `translate3d(-${w/2}px, ${h/2 + 10}px, ${d/2}px)` }}>
           <div className="dimension-line" style={{ width: `${w}px`, height: '1px' }}></div>
           <div className="dimension-tick" style={{ height: '4px', width: '1px', left: '0', top: '-2px' }}></div>
           <div className="dimension-tick" style={{ height: '4px', width: '1px', right: '0', top: '-2px' }}></div>
           <div className="dimension-label" style={{ left: '50%', top: '0', transform: 'translate(-50%, 4px) scale(0.8)' }}>{realL}</div>
       </div>
-
-      {/* Cota H */}
       <div className="absolute pointer-events-none" style={{ transform: `translate3d(${w/2 + 10}px, -${h/2}px, ${d/2}px)` }}>
           <div className="dimension-line" style={{ height: `${h}px`, width: '1px' }}></div>
           <div className="dimension-tick" style={{ width: '4px', height: '1px', top: '0', left: '-2px' }}></div>
           <div className="dimension-tick" style={{ width: '4px', height: '1px', bottom: '0', left: '-2px' }}></div>
           <div className="dimension-label" style={{ top: '50%', left: '0', transform: 'translate(6px, -50%) scale(0.8)' }}>{realH}</div>
       </div>
-
-      {/* Cota W */}
       <div className="absolute pointer-events-none" style={{ transform: `translate3d(${w/2}px, ${h/2 + 10}px, ${d/2}px) rotateY(90deg)`, transformOrigin: '0 0' }}>
           <div className="dimension-line" style={{ width: `${d}px`, height: '1px' }}></div>
           <div className="dimension-tick" style={{ height: '4px', width: '1px', left: '0', top: '-2px' }}></div>
@@ -251,7 +234,6 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
           <div 
             className="absolute left-1/2 -translate-x-1/2 bg-[#121212] border border-[#FFC72C] text-[#FFC72C] px-2 py-0.5 rounded text-[8px] font-black tracking-wider whitespace-nowrap shadow-lg z-50 pointer-events-none"
             style={{ 
-              // Correction: Position based on height of the box to always be above
               transform: `translate3d(-50%, -${height/2 + 25}px, 0)` 
             }}
           >
@@ -268,76 +250,54 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
   };
 
   // --- RENDER MODES ---
-
-  // Helper to generate coordinates grid
   const getGridCoords = (layout: PackingLayout, dims: {w:number, h:number, d:number}, parentOffset: {x:number, y:number, z:number}, parentSize: {w:number, h:number, d:number}) => {
     const coords = [];
     const startX = parentOffset.x - parentSize.w/2 + dims.w/2;
     const startY = parentOffset.y - parentSize.h/2 + dims.h/2;
     const startZ = parentOffset.z - parentSize.d/2 + dims.d/2;
-
     for(let x=0; x<layout.nx; x++) {
       for(let y=0; y<layout.ny; y++) {
         for(let z=0; z<layout.nz; z++) {
-          coords.push({
-             x: startX + x * dims.w,
-             y: startY + y * dims.h,
-             z: startZ + z * dims.d
-          });
+          coords.push({ x: startX + x * dims.w, y: startY + y * dims.h, z: startZ + z * dims.d });
         }
       }
     }
     return coords;
   }
 
-  // Helper for HIGH CONTRAST varied colors
   const getColorStyle = (idx: number, isProduct: boolean = false) => {
     const palette = [
-      { border: 'border-emerald-500', bg: 'bg-emerald-500' }, // Green
-      { border: 'border-amber-500', bg: 'bg-amber-500' },     // Orange/Amber
-      { border: 'border-violet-600', bg: 'bg-violet-600' },   // Purple
-      { border: 'border-red-500', bg: 'bg-red-500' },         // Red
-      { border: 'border-cyan-400', bg: 'bg-cyan-400' },       // Cyan
-      { border: 'border-pink-500', bg: 'bg-pink-500' },       // Pink
+      { border: 'border-emerald-500', bg: 'bg-emerald-500' }, 
+      { border: 'border-amber-500', bg: 'bg-amber-500' },
+      { border: 'border-violet-600', bg: 'bg-violet-600' },
+      { border: 'border-red-500', bg: 'bg-red-500' },
+      { border: 'border-cyan-400', bg: 'bg-cyan-400' },
+      { border: 'border-pink-500', bg: 'bg-pink-500' },
     ];
-    
     const theme = palette[idx % palette.length];
-    const opacity = isProduct ? '40' : '10'; // Products are more opaque to stand out
+    const opacity = isProduct ? '40' : '10';
     const borderOpacity = '50';
-    
     return `${theme.border}/${borderOpacity} ${theme.bg}/${opacity}`;
   };
 
-  // Mode 2: Packed / X-Ray Logic
   const renderPackedContent = () => {
     const boxes = [];
     const maxRender = 500; 
-    
     const isPackingInners = hasInnerCarton && totalInners > 0;
     
     if (isPackingInners) {
-      // 1. Render INNERS inside Master
       const innerCoords = getGridCoords(innerLayout, innerDims, {x:0,y:0,z:0}, {w:masterW, h:masterH, d:masterD});
-      
       innerCoords.forEach((coord, idx) => {
         if (idx >= maxRender) return;
-        
-        // Render Inner Box with Varied Colors
-        // Using getColorStyle with isProduct=false
         boxes.push(renderBox(
           innerDims.w - 1, innerDims.h - 1, innerDims.d - 1,
           getColorStyle(idx, false), 
           coord,
           `inner-${idx}`
         ));
-
-        // 2. Render PRODUCTS inside ALL Inners
         const prodCoords = getGridCoords(productLayout, productDims, coord, {w: innerDims.w, h: innerDims.h, d: innerDims.d});
-        
         prodCoords.forEach((pCoord, pIdx) => {
             if ((boxes.length) >= 800) return; 
-
-            // Use SAME color index as the parent Inner, but with product styling (more opaque)
             boxes.push(renderBox(
               productDims.w - 1, productDims.h - 1, productDims.d - 1,
               getColorStyle(idx, true), 
@@ -346,11 +306,8 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
             ));
         });
       });
-
     } else {
-      // Direct Packing: Products inside Master (Standard Green theme)
       const prodCoords = getGridCoords(productLayout, productDims, {x:0,y:0,z:0}, {w:masterW, h:masterH, d:masterD});
-      
       prodCoords.forEach((coord, idx) => {
         if (idx >= maxRender) return;
         boxes.push(renderBox(
@@ -361,25 +318,43 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
         ));
       });
     }
-
     return boxes;
   };
 
-  return (
+  const Content = (
     <div 
       ref={containerRef}
-      className={`w-full h-full min-h-[300px] flex flex-col items-center justify-center relative select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+      className={`${
+        isFullscreen 
+          ? 'fixed inset-0 z-[9999] bg-[#0A0A0A] w-screen h-screen' 
+          : 'w-full h-full min-h-[300px] relative'
+      } flex flex-col items-center justify-center select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} transition-all duration-300`}
       onMouseDown={handleMouseDown}
       onTouchStart={handleMouseDown}
     >
-      <div className="absolute top-4 right-4 flex flex-col gap-2 z-20 pointer-events-none">
-        <div className="text-neutral-600 flex items-center gap-1 justify-end">
-          <Move3d size={14} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Gire e Zoom</span>
+      {isFullscreen && (
+        <>
+           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,199,44,0.08)_0%,transparent_70%)] pointer-events-none"></div>
+           <div className="absolute inset-0 opacity-[0.07] bg-[size:40px_40px] bg-[linear-gradient(to_right,#FFC72C_1px,transparent_1px),linear-gradient(to_bottom,#FFC72C_1px,transparent_1px)] pointer-events-none"></div>
+        </>
+      )}
+
+      {/* Controls Top Right */}
+      <div className="absolute top-4 right-4 flex flex-col items-end gap-3 z-50 pointer-events-none">
+        <button
+            onClick={(e) => { e.stopPropagation(); setIsFullscreen(!isFullscreen); }}
+            className="pointer-events-auto p-2.5 bg-[#1F1F1F]/80 backdrop-blur-md rounded-xl border border-[#FFC72C]/20 text-[#FFC72C] hover:bg-[#FFC72C] hover:text-black transition-all shadow-lg group"
+            title={isFullscreen ? "Sair da Tela Cheia" : "Tela Cheia"}
+        >
+            {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+        </button>
+        <div className="text-neutral-500 flex items-center gap-1 justify-end bg-black/20 px-3 py-1.5 rounded-full backdrop-blur-sm border border-white/5">
+           <Move3d size={12} />
+           <span className="text-[9px] font-bold uppercase tracking-widest">Gire e Zoom</span>
         </div>
       </div>
 
-      {/* NEW UI: Mode Selector Bar */}
+      {/* Mode Selector Bar */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
         <div className="bg-[#121212]/90 backdrop-blur-md p-1.5 rounded-xl border border-neutral-700 shadow-[0_8px_30px_rgb(0,0,0,0.5)] flex gap-1">
           <button 
@@ -431,11 +406,9 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
           className="cube-3d relative w-0 h-0 transition-transform duration-75"
           style={{ transform: `scale(${zoom}) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)` }}
         >
-            
             {/* --- MASTER BOX --- */}
             {renderBox(
               masterW, masterH, masterD, 
-              // Mode 2 makes master transparent (ghostly)
               viewMode === 2 
                 ? "border-[#FFC72C]/30 bg-transparent border-dashed" 
                 : (viewMode === 1 ? "border-[#FFC72C]/30 bg-[#FFC72C]/5" : "border-[#FFC72C] bg-[#FFC72C]/10"),
@@ -445,10 +418,9 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
               viewMode === 0 ? { realL: l, realH: h, realW: w } : undefined
             )}
 
-            {/* --- MODE 1: HIERARCHY (EXPLODED VIEW) --- */}
+            {/* --- MODE 1: HIERARCHY --- */}
             {viewMode === 1 && (
               <>
-                {/* INNER BOX (Se existir) */}
                 {hasInnerCarton && totalInners > 0 && (
                   renderBox(
                     innerDims.w, innerDims.h, innerDims.d, 
@@ -459,16 +431,10 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
                     { realL: innerRealDims.l, realH: innerRealDims.h, realW: innerRealDims.w }
                   )
                 )}
-
-                {/* UNIT BOX */}
                 {renderBox(
                   productDims.w, productDims.h, productDims.d, 
                   "border-emerald-400/80 bg-emerald-400/10",
-                  { 
-                    x: posUnitDefault + pivotShiftX,
-                    y: 0, 
-                    z: 0 
-                  },
+                  { x: posUnitDefault + pivotShiftX, y: 0, z: 0 },
                   "hierarchy-unit",
                   `${Math.round(hasInnerCarton ? pcsPerInner : totalPcs)}x PRODUTO`,
                   { realL: productRealDims.l, realH: productRealDims.h, realW: productRealDims.w }
@@ -476,11 +442,16 @@ export const Box3DPreview: React.FC<Box3DPreviewProps> = ({
               </>
             )}
 
-            {/* --- MODE 2: PACKED / X-RAY --- */}
+            {/* --- MODE 2: PACKED --- */}
             {viewMode === 2 && renderPackedContent()}
-
         </div>
       </div>
     </div>
   );
+
+  if (isFullscreen) {
+    return createPortal(Content, document.body);
+  }
+
+  return Content;
 };
